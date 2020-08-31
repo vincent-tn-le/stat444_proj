@@ -1,0 +1,923 @@
+---
+title: "D.C. Residential Properties Price Prediction"
+subtitle: "Stat 444 Winter 2019 Final Project"
+author:
+- Vincent Le
+- Felicia Jiang
+date: '2019-03-19'
+output:
+  pdf_document: default
+  html_document: default
+---
+
+# Abstract
+
+\newpage
+
+
+# Introduction
+Within the housing market, there are many indicators on how much a property would be worth to a buyer or seller. We will be investigating which metrics would be of most interest and how much said metric effect the target response; housing price. In this report, we will be performing research a cleaned version of D.C Residential Properties which can be found on Kaggle. The information is current as of July 2018 and was provided by the D.C Geographic Information System. According to the description of the dataset, the D.C housing market has been growing since 2000 and the city is highly segregated in both racial and economic demographics. We are interested in predicting housing prices and analysing important metrics because it would provide us insight into what key features would be most impactful when considering a purchase. Predicting this value accurate can also be a key insight for both home buyers and realtors into see how much a house with a certain set of characteristics is really worth, according to the model, and then decisions to buy or sell could be made more thoroughly.
+
+The given dataset contains 39520 records of house sales from 1982 to 2018 within the Washington D.C area. With each of the records, 37 attributes about the sale of the house was recorded, including the price and the sale date. The aforementioned variables contain information about, but not limited to, location dataa, style and construction of the house, important dates, and additional features. These variables will be investigated through statistical means and which variables are important will be determined. The dataset is unprocessed, containing both categorical and numerical variables as well as missing values, therefore preprocessing the data will be necessary before any analysis. This will be discussed further in the report. 
+
+Below is a preview of the histogram of the response variable (price) as we originally got it:
+```{r,warning=FALSE,include=TRUE, results="hide"}
+set.seed(123)
+# Load in the D.C residential housing price dataset
+knitr::opts_knit$set(root.dir = "/Users/vincentle/Downloads/Stat 444")
+setwd("/Users/vincentle/Downloads/Stat 444")
+housing <- read.csv("housing_price_missing.csv")
+housing_no_miss <- read.csv("housing_price_no_missing.csv")
+hist(housing$PRICE, main = "D.C residential housing prices", xlab = "Price ($)", ylab = "Count")
+```
+
+In order to determine how well we are able to predict prices, we will be ranked amongst other undergraduate and graduate students in an online Kaggle Submission. The aim is to minimize the error metric, which in this case is the RMLSE (root mean squared logarithmic error). More specifically, it is defined as **$RMLSE = \sqrt{\frac{1}{n}\sum^n_{i=1}(log(PRICE) - log(prediction))^2}$**.
+
+Since we are doing predictions based on the RMLSE and we see that the data is skewed to the left, we apply a log transformation. Here is what the pricing data looks like:
+
+```{r,warning=FALSE,include=TRUE, results="hide"}
+log_price <- log(housing$PRICE)
+#hist(log(housing$PRICE), main = "D.C residential housing prices (logged)", xlab = "Price ($)", ylab = "Count")
+hist(log_price, main = "D.C residential housing prices (logged)", xlab = "Price ($)", ylab = "Count")
+```
+
+# Data
+We will discuss the nature of each variable here to gain understanding of the problem's domain as well as familiarize ourselves with the dataset. As stated above the dataset contains 39520 records of house sales in the D.C residential area in 37 variables.
+
+For calculating the error metric (RMLSE) we will do k-fold cross validation for $k=5$ based on the fold variable in the dataset. We will build 5 different models to calculate the RMLSE based on testing and training data based on fold. For example, for model 1, it will be trained on data from fold 2 to 5 and then tested on fold 1 data. Then we will calculate $RMLSE = \sqrt{\frac{1}{n}\sum^n_{i=1}(log(PRICE) - log(prediction))^2}$. This will be done before predictions. First we split our data into the standard 75-25 training and testing datasets. Model building will be done on the training set for random forest, boosting and smoothing methtods. We aim for a final RMLSE of ~0.2 based on Kaggle submission and report outline.
+
+```{r}
+## final training sets by 75-25 split
+
+sample <- sample.int(n = nrow(housing), size = floor(.75*nrow(housing_no_miss)), replace = F)
+train <- housing_no_miss[sample, ]
+test  <- housing_no_miss[-sample, ]
+
+x_train <- train[,-11]
+x_test <- test[,-11]
+y_train <- data.frame(log(train$PRICE))
+colnames(y_train) <- "PRICE"
+y_test <- data.frame(log(test$PRICE))
+colnames(y_test) <- 'PRICE'
+
+write.csv(x_train, "x_train_na.csv")
+write.csv(x_test, "x_test_na.csv")
+write.csv(y_train, "y_train_na.csv")
+write.csv(y_test, "y_test_na.csv")
+```
+
+## Initial variable selection
+
+Throughout the course we learnt abaout the problems that high dimensionality presents a problem for computational time and processing power, the so called "curse of dimensionality". Therefore we will try to initially select the most important variables for our final model through fitting random forest model. We will use the RMLSE error metric in order to gauge variable importance. As we will see later in this course we select 7 variables to fit all of our models to.
+
+# Preprocessing
+It was important that we do preprocessing on the D.C Residential Properties dataset not only to reduce computational complexity, but also to handle any existing problems in the dataset such as outliers or missing data. As an example, the randomForest implementation in R would not handle categorical variables with more than 53 levels, and ASSESSMENT_NBHD column had 55 levels.
+
+Using random forest as an example again, it was found that the run time was extremely slow prior to preprocessing. Comparing aa general run titme of 10 minutes versus 2 hours, preprocessing our dataset does impact our run time a great deal.
+
+Based on the above discussion about the variables, their respective level of importance, and manner in which we may deal with the data, we decided that the pipeline that would be followed would comprise of: dropping redundant variables, encoding ordinal and categorical variables, and then getting rid of rows with missing data. 
+
+## Location variables
+A few of the the variables in the dataset ultimately refer back to the same thing, the location of the property being sold. We drop the ASSESSESSMENT_SUBNBHD class because of its interpretation (more in the missing values section) and for the remaining locaation variables (LONGITUDE, LATITUDE, ASSESSMENT_NBHD, WARD_NUM) we leave them in the model aanad try to determine which ones are the more important variables.
+
+## Ordinal variables
+The categorical variables which describe an attribute where some hierarchy is involved is considered here. Dealing with these variables was simple, as there was an implied order pre-established. However the only caveat was the interpretation of the categories for when there was ambiguity, such as having to consider "Exceptional-A" vs. "Excellent" in the "GRADE" category, then we proceeded with intuition. Once we had established said hierarchy, then we mapped each of the categories for these variables to a number 1 to N, where N was the weight for the highest category in the hierarchy. We used functionality in python pandas to map each of the categorical variables to a number.
+The variables that were ordinal, and their accompanying scale within the original housing_price.csv are:
+
+* **GRADE**: Superior:12, Excellent:11, Exceptional-A:10, Exceptional-B:9,
+            Exceptional-C:8, Exceptional-D:7, Very Good:6, Above Average:5,
+            Good Quality:4, Average:3, Fair Quality:2, Low Quality:1
+            
+* **CNDTN**: Excellent: 6, Very Good:5, Good:4, Average:3, Fair:2, Poor:1
+
+## Nominal variables
+The categorical variables which describe the house's attributes and do not have any intrinsic order were considered here. This dataset was describing the features of a house being sold so many of the variables are nominal, so it was important that we deal with them correctly. The procedure for dealing with these was to simply turn them into factors within R and leave them untouched in Python. This is so that the algorithms in R can run on the data.
+
+## Engineered features
+While there were variables within the dataset that were ultimately dropped due to reasons discussed above, there is still the concern that some useful information could be hiding within those variables. Hence we performed feature engineering to create new features that more better capture information we justified as being relevant to prediction.
+
+The new features that were created are:
+
+* **Sale Month**: extracted the month value from the original SALEDATE
+
+We had seperated the SALEDATE into this component because it thought that the effect of seasonality, could have an effect on the sale price. An intuition was that an individual would be more inclined to pay for a house in the summer months rather than the winter months, for example 
+  
+* **Sale Year**: extracted the year value from the original SALEDATE
+
+We had seperated this from the SALEDATE variable because it was thought that the year in which the property was sold could capture the recent trends in the housing market
+  
+* **Years since EYB**: the number of years that have elapsed since a remodel was done on the property
+
+We chose this to replace the EYB variable to both deal with the issue that some properties had a missing value for EYB (as discussed above) and the how recent the remodel was done on a property was more indicative than the year itself
+  
+* **Years since improvement**: the number of years that have elapsed since an improvement was done on the property
+
+We chose to replace the YR_RMDL variable with this new feature due to the same reasons above. Additionally, this was included because the way in which the variables were defined, an improvement had more positive connotations, whereas a remodel more vague.
+
+This Python preprocessing notebook can be found attached in the appendix. 
+
+## Missing values
+There are a number of methods in which we could deal with with the issue of missing values. There are both systematic and non-systematic reasons as to why values could be absent. For the predicting housing prices problem, data may be missing because it does not make sense to include a value for a certain variable. For example, in the ASSESSMENT_NBHD and ASSESSMENT_SUBNBHD, if the ASSESSMENT_NBHD is already sufficient to describe the neighbourhood for a datapoint, then the ASSESSMENT_SUBNBHD field in the same datapoint will be empty. 
+
+Data may also be missing due to not being recorded or available for the dataset. We see that there are empty values in the FULLADDRESS, STORIES, and CENSUS_BLOCK variates (among others). Logically it does not make sense that, say, a house does not an address, especially when considering the sale of the house. 
+
+For entire variates with missing values, this is how they were dealt with:
+
+* **YR_RMDL**: this variate has value NA when a remodel to the residence did not occur. We approached these missing values by reconsidering the variate relative to the SALE_YEAR. We create a new numeric explanatory variate: YEARS_SINCE_RMDL indicating the number of years following a remodel, that a sale is made; a value of -1 is assigned to SALE_LESS_RMDL for sales that were made before remodel year, since a remodel prior to a sale should have no effect on the sale price. We also assign -1 to account for instances where remodels do not occur, thus fixing the missing value problem in YR_RMDL. We may also treat AYB (improvement year) in the same way, since AYB is only relevant when occurring before SALE_YEAR; we created a new variable YEARS_SINCE_IMPROVEMENT.
+
+* **STORIES**: some rows were missing a value in this row, however the number of stories a house has is captured in the the STRUCT variable, so the data was migrated to populate the missing values.
+
+* **ASSESSMENT_SUBNBHD**: every entry in ASSESSMENT_SUBNBHD is a subset of its respective ASSESSMENT_NBHD, so we know that missing values of ASSESSMENT_SUBNHBD occur due to the lack of further distinction to that respective neighborhood. Therefore, we are able to merge the 2 variates without inhibiting our statistical analysis.
+
+Based on this we also transformed the "_ story" values in the STRUCT column into a categorical variable called "Storied" because the amount of stories a house has already been captured, and there is still viable information in the STRUCT column.
+
+
+## Outlier values
+Based on visual analysis of scatterplots and correlograms, we will identify rows that do not make sense within our domain space. These will then be removed from training sets in order to prevent any incorrect model fitting.
+
+We use correlograms between the variables of importance to locate outliers within our dataset. As an example, we will look at a few of the varibles (as a 32 x 32 corellogram would be computationally taxing and we decided not to use all the variables). We use the seaborn library in Python to create the correllogram. For exploratory purposes we will consider the relations between PRICE, GRADE, CNDTN, STORIES and ROOMS.
+
+```{python}
+import seaborn as sns
+import pandas as pd
+import os
+import matplotlib.pyplot as plt 
+
+os.chdir("/Users/vincentle/Downloads/Stat 444/")
+
+housing_data = pd.read_csv("housing_price.csv", header = 0)
+plt.style.use("seaborn-colorblind")
+sns.pairplot(housing_data[["PRICE","GRADE", "CNDTN", "STORIES","ROOMS"]], kind="scatter", 
+             diag_kind = "kde", plot_kws = {"alpha": 0.33, "s": 80, "edgecolor": "k"}, height = 4)
+plt.show()
+```
+
+Through observations of the plots, we now for particular points that were removed for training.
+
+* **2322**: This datapoint indicates that there exists a house with over 800 stories. This is not indicative of the average DC residence, nor is it indicative of any building ever made, so thus removed.
+
+* **7518**: This datapoint indicates that the house was sold for $22,000,000. Upon investigation it was found that this house is mansion and not indicative of the average DC residence, so thus removed.
+
+* **17291**: This datapoint indicates that there is a house with 15 bedrooms and 19 rooms, which seems anomalous so we remove it.
+
+* **21997**: This datapoint indicates that the house was remodeled in 20 A.D. We assume that this is just a measurement error, so nothing could be done to alleviate this, thus removed.
+
+* **26014**: This datapoint indicates that there is a house with 7 half bathrooms. This is the only datapoint with 7 bathrooms so we chose to get rid of it, seeing as how there is no house with 6 half bathrooms.
+
+We did additional preprocessing in R after dealing with the categorical variables in Python. Here we turn all the remaining nominal variables into factors and addtionally split the dataframe into testing and training sets. This code chunk could be found in the appendix.
+
+# Analysis
+
+## Random forests
+We will explore which variables are most important for our modelling first using the random forest algorithm. Using the most important variables, we will build out the random forest model as well as any others that we consider for the rest of this report. Additionally, random forest methods will be used to do predictions on the housing prices.  
+
+In order to determine features of importance, we will use a fast implementation of the algorithm using the ranger package. For exploratory data analysis, we will let $mtry=4$ and $num.trees=200$. We then plot the variable importances that result from the ranger fit in order to determine wht's the most valuable.
+
+How we determine which variables to include in the model in terms of variable importance. Firstly, we will look at the below variable importance plot created with the ranger library.
+
+```{r}
+library(ranger)
+h <- ranger(PRICE~.,data=na.omit(housing_no_miss),mtry=4,num.trees=200,importance="impurity")
+dotchart(h$variable.importance[order(h$variable.importance)])
+```
+
+We see that the top 7 are the most important, which correspond to GBA, GRADE, SALE_YEAR, BATHRM, LONGITUDE, WARD_NUM, and CNDTN based on the above variable importance plot.
+
+Now we work to hyper tune random forest parameters to obtain the best fit. We will verify how accurate our model is afterwards by calculating the RMLSE. 
+
+In order to tune parameters and arrive at the best mtry value, that is the number of variables to sample at each split, we refer code from the course notes while tinkering with codes in order to suite our purposes here.
+
+```{r}
+library(tree)
+library(randomForest)
+
+x_train <- x_train[,c("GBA","GRADE","SALE_YEAR","BATHRM","LONGITUDE","WARD_NUM","CNDTN")]
+get_muhat_rf <- function(sample, mtry) {
+  df <- cbind(sample$x,sample$y)
+  colnames(df)[8] = "PRICE"
+  fit <- ranger(PRICE~.,data=df, num.trees = 200, mtry=mtry, importance = "impurity")
+  
+  muhat <- function(x){predict(fit,data=x,ntree=200)$predictions}
+  muhat
+}
+
+# Generate samples
+getSample <- function(pop, samplesize, x, y, seed_val) {
+  set.seed(seed_val)
+  i_sam <- sample(pop, samplesize, replace = TRUE)
+  x_sam <- x[c(i_sam),]
+  y_sam <- y[c(i_sam),]
+  list(x=x_sam, y=y_sam)
+}
+
+# Generate 100 samples of test and train
+Ssamples <- lapply(1:10, FUN = function(i) {
+  getSample(29541, 2000, na.omit(x_train), na.omit(y_train), i)
+}) 
+
+Tsamples <- lapply(1:10, FUN = function(i) {
+  getSample(9848, 1000, na.omit(x_test), na.omit(y_test), i)
+})
+
+ave_y_mu_sq <- function(sample, predfun) {
+  mean(abs(sample$y - predfun(sample$x)) ^ 2)
+  #print(mean(abs(sample$y - predfun(sample$x)) ^ 2))
+}
+
+apse <- function(Ssamples, Tsamples, hyper, modelType) {
+  N_S <- length(Ssamples)
+  mean(sapply (1:N_S,
+               FUN = function(j) {
+               S_j <- Ssamples[[j]]
+               
+               # Smoothing
+               if (modelType == "TPS") {
+                 muhat <- get_muhat_tps(S_j, df=hyper)
+               }
+               
+               # Random forests 
+               if (modelType == "RF") {
+                 muhat <- get_muhat_rf(S_j, mtry=hyper)
+               }
+               
+               # Boosting Depth
+               if (modelType == "BST_DEP") {
+                 muhat <- get_muhat_bst_depth(S_j, depth=hyper)
+               }
+               
+               # Boosting Shrinkage
+               if (modelType == "BST_SHR") {
+                 muhat <- get_muhat_bst_shrinkage(S_j, lambda=hyper)
+               }
+               
+               T_j <- Tsamples[[j]]
+               
+               ## Boosting calculations
+               if (modelType == "BST_DEP" || modelType == "BST_SHR") {
+                 ave_y_mu_sq_boost(T_j, muhat)
+               }
+               else ave_y_mu_sq(T_j, muhat)
+               })
+       )
+}
+
+apse_list <- c()
+complexity <- c(4:7)
+
+for (i in complexity) {
+  model_apse <- apse(Ssamples, Tsamples, hyper = i, modelType = "RF")
+  apse_list <- c(apse_list,model_apse)
+}
+plot(complexity,apse_list, main = "RMLSE for different values of mtry", ylab = "RMLSE")
+```
+
+```{r}
+test1 <- housing[housing$fold == 1,]
+test2 <- housing[housing$fold == 2,]
+test3 <- housing[housing$fold == 3,]
+test4 <- housing[housing$fold == 4,]
+test5 <- housing[housing$fold == 5,]
+
+train1 <- housing[housing$fold %in% c(2:5),]
+train2 <- housing[housing$fold %in% c(1,3:5),]
+train3 <- housing[housing$fold %in% c(1:2,4:5),]
+train4 <- housing[housing$fold %in% c(1:3,5),]
+train5 <- housing[housing$fold %in% c(1:4),]
+
+y_train1 <- data.frame(log(train1$PRICE))
+y_train2 <- data.frame(log(train2$PRICE))
+y_train3 <- data.frame(log(train3$PRICE))
+y_train4 <- data.frame(log(train4$PRICE))
+y_train5 <- data.frame(log(train5$PRICE))
+
+x_train1 <- train1[,-11]
+x_train2 <- train2[,-11]
+x_train3 <- train3[,-11]
+x_train4 <- train4[,-11]
+x_train5 <- train5[,-11]
+
+y_test1 <- data.frame(log(test1$PRICE))
+y_test2 <- data.frame(log(test2$PRICE))
+y_test3 <- data.frame(log(test3$PRICE))
+y_test4 <- data.frame(log(test4$PRICE))
+y_test5 <- data.frame(log(test5$PRICE))
+
+x_test1 <- test1[,-11]
+x_test2 <- test2[,-11]
+x_test3 <- test3[,-11]
+x_test4 <- test4[,-11]
+x_test5 <- test5[,-11]
+
+## final testing sets by fold
+train1f <- housing_no_miss[housing_no_miss$fold == 1,]
+train2f <- housing_no_miss[housing_no_miss$fold == 2,]
+train3f <- housing_no_miss[housing_no_miss$fold == 3,]
+train4f <- housing_no_miss[housing_no_miss$fold == 4,]
+train5f <- housing_no_miss[housing_no_miss$fold == 5,]
+
+test1f <- housing_no_miss[housing_no_miss$fold == 1,]
+test2f <- housing_no_miss[housing_no_miss$fold == 2,]
+test3f <- housing_no_miss[housing_no_miss$fold == 3,]
+test4f <- housing_no_miss[housing_no_miss$fold == 4,]
+test5f <- housing_no_miss[housing_no_miss$fold == 5,]
+
+y_test1f <- data.frame(log(test1f$PRICE))
+y_test2f <- data.frame(log(test2f$PRICE))
+y_test3f <- data.frame(log(test3f$PRICE))
+y_test4f <- data.frame(log(test4f$PRICE))
+y_test5f <- data.frame(log(test5f$PRICE))
+
+x_test1f <- test1f[,-11]
+x_test2f <- test2f[,-11]
+x_test3f <- test3f[,-11]
+x_test4f <- test4f[,-11]
+x_test5f <- test5f[,-11]
+
+x_train <- rbind(x_train1,x_train2,x_train3,x_train4,x_train5)
+colnames(y_train1) <- "PRICE"
+colnames(y_train2) <- "PRICE"
+colnames(y_train3) <- "PRICE"
+colnames(y_train4) <- "PRICE"
+colnames(y_train5) <- "PRICE"
+
+y_train <- rbind(y_train1,y_train2,y_train3,y_train4,y_train5)
+```
+
+Now we will calculate an RMLSE value based off the k-fold cross validation on the training and testing sets, divided by folds
+
+```{r}
+## Predictions 
+df1 <- cbind(x_train1,y_train1)
+model1 <- ranger(PRICE~GBA + GRADE + SALE_YEAR + BATHRM + LONGITUDE + WARD_NUM + CNDTN, data = df1, mtry= 4,num.trees = 200, importance = 'impurity')
+model1.pred <- predict(model1, x_test1f,mtry= 4, importance = 'impurity', num.trees = 200)
+
+df2 <- cbind(x_train2,y_train2)
+model2 <- ranger(PRICE~GBA + GRADE + SALE_YEAR + BATHRM + LONGITUDE + WARD_NUM + CNDTN, data=df2,mtry= 4, num.trees = 200, importance = 'impurity')
+model2.pred <- predict(model2, x_test2f,mtry= 4, importance = 'impurity', num.trees = 200)
+
+df3 <- cbind(x_train3,y_train3)
+model3 <- ranger(PRICE~GBA + GRADE + SALE_YEAR + BATHRM + LONGITUDE + WARD_NUM + CNDTN, data=df3,mtry= 4, num.trees = 200, importance = 'impurity')
+model3.pred <- predict(model3, x_test3f, mtry=4,importance = 'impurity', num.trees = 200)
+
+df4 <- cbind(x_train4,y_train4)
+model4 <- ranger(PRICE~GBA + GRADE + SALE_YEAR + BATHRM + LONGITUDE + WARD_NUM + CNDTN, mtry= 4,data=df4, num.trees = 200, importance = 'impurity')
+model4.pred <- predict(model4, x_test4f, mtry=4,importance = 'impurity', num.trees = 200)
+
+df5 <- cbind(x_train5,y_train5)
+model5 <- ranger(PRICE~GBA + GRADE + SALE_YEAR + BATHRM + LONGITUDE + WARD_NUM + CNDTN, data=df5, num.trees = 200,
+              importance = 'impurity')
+model5.pred <- predict(model5, x_test5f, mtry=4,importance = 'impurity', num.trees = 200)
+
+a <- cbind(x_test1f$Id, model1.pred$predictions,data.frame(y_test1f$log.test1f.PRICE.))
+colnames(a) <- c("Id","PRICE","y")
+b <- cbind(x_test2f$Id, model2.pred$predictions, data.frame(y_test2f$log.test2f.PRICE.))
+colnames(b) <- c("Id","PRICE","y")
+c <- cbind(x_test3f$Id, model3.pred$predictions, data.frame(y_test3f$log.test3f.PRICE.))
+colnames(c) <- c("Id","PRICE","y")
+d <- cbind(x_test4f$Id, model4.pred$predictions, data.frame(y_test4f$log.test4f.PRICE.))
+colnames(d) <- c("Id","PRICE","y")
+f <- cbind(x_test5f$Id, model5.pred$predictions, data.frame(y_test5f$log.test5f.PRICE.))
+colnames(f) <- c("Id","PRICE","y")
+
+rf_preds <- rbind(a,b,c,d,f)
+
+rmlse_rf <- sqrt(mean(abs(rf_preds[,3] - rf_preds[,2])^2))
+rmlse_rf
+
+
+## Creating the submission file
+rf_preds <- data.frame(rf_preds[,c(1,2)])
+rf_preds <- rf_preds[order(rf_preds[,1]),]
+rf_preds[,2] <- exp(rf_preds[,2])
+colnames(rf_preds) <- c("Id","PRICE")
+write.csv(rf_preds,"rf_predictions.csv",row.names = FALSE)
+```
+
+
+Based on the above plot, we see that the lowest APSE results from using $mtry = 4$. This means that we will use $4$ variables randomly sampled as candidates at each split. This will ensure thats enough different variates are being considered everytime that we make our random forest.
+
+```{r}
+# add random noise, new columns, complete random noise
+# only show columns that beat out random noise
+```
+
+To further investigate the importance of the variables we found, we will consider the partial dependence plots of the chosen variates. The partial dependence plot will tell us, given a variable and all other variables held constant, how the response variable changes with the given variable. 
+
+```{r}
+library(pdp)
+# partial dependence
+partial(h, pred.var = "GBA", plot = TRUE, plot.engine = "ggplot2")
+```
+
+This plot shows that as land area of a house increases so does the price of the house, at least until a certain point past 8500 square feet. After this point land area contributes less to a house's price. This seems reasonable with what we would expect in the real world as a bigger house would cost more, until other considerations affect the price more.
+
+```{r}
+partial(h, pred.var = "BATHRM", plot = TRUE, plot.engine = "ggplot2")
+```
+
+This plot shows that the number of bathrooms consistently increases the price of the house. The steepest increase comes when the number of bathroom increases from around 2 to 3. This is reasonable with what we would expect in real life because more bathrooms intuitively should cost most.
+
+```{r}
+partial(h, pred.var = "GRADE", plot = TRUE, plot.engine = "ggplot2")
+```
+
+This plot is interesting, it seems to show that the grade of a house does not have the expected effect on price. It was thought that as grade increased then price would strictly increase as well, since a house with a better grade should cost more. However, the plot is showing us that being in in the upper middle echelon of grades has the greatest effect on price, while the extremes have a lower effect. Generally speaking though, a higher grade leads to an increase in price. 
+
+```{r}
+partial(h, pred.var = "SALE_YEAR", plot = TRUE, plot.engine = "ggplot2")
+```
+
+This plot tells us interesting things about how SALE_YEAR affects the price of a house. We see that the overall trend is that as SALE_YEAR increases, the price of a house increases as well. There is no effect on price if a house is sold prior to approximately 1999 or between ~2002-2012 as the partial dependence plot is flat here. Between those flat areas, the price increases steeply as SALE_YEAR increases.
+
+```{r}
+partial(h, pred.var = "LONGITUDE", plot = TRUE, plot.engine = "ggplot2")
+```
+
+This plot is different from the other ones in that it is the first with an overall decrease in response as the variate increases. If the longitude of one location is greater than the other, it means that it is more eastern that that of the original. So we see that for the more western side of D.C residential area, the houses generally cost more. While the eastern side of D.C seems to have less valuable houses. This could mirror real life as we have been told that the D.C residential housing market is very segregated in terms of socio-economic levels.
+
+```{r}
+partial(h, pred.var = "WARD_NUM", plot = TRUE, plot.engine = "ggplot2")
+```
+
+This plot shows us that some wards have higher house prices than others with the most valuable hows in the lower numbered wards. Additional research could be done for more information on income levels in each ward. Interestingly the shape of the longitude partial dependence plot is very similiar to that of above. This further supports the idea that the D.C housing market is very segregated by socio-economic levels.
+
+```{r}
+partial(h, pred.var = "CNDTN", plot = TRUE, plot.engine = "ggplot2")
+```
+
+This plot was expected for CNDNTN. It simply shows us that as the condition of the house gets better, then the price level increases accordingly. It does show that condition of the house does not have as much of an effect until it is average (which corresponds with a numeric value of 3) or above.
+
+We see the different ways that our 7 most important variables affect the 
+
+```{r}
+x <- rbind(x_train,x_test)
+y <- rbind(y_train,y_test)
+```
+
+It can be noted that for random forest algorithms, and decision trees in general, there is less of a need for hyper tuning parameters. Compared to the other methods in this report, random forests are more robust to outliers. Decision trees will isolate potential outliers into small leaves, so it will not affect the model. Furthermore, decision trees are fit locally, so for each subspace (leaf) a simple model is fit. Extreme values will not affect the fit of the global model since they are fit locally. 
+
+However, random forests do come with caveats. One such caveat was that the computational time for fitting the model was quite long, as there are categorical features with high cardinality. It was found that while using the randomForest package, the function will not work on categorical variables with more than 53 levels, and our highest cardinality was ASSESSMENT_NBHD at 55. Therefore the ranger package was used to aid in runtime and interpretability of the code. 
+
+Another caveat with random forest methods is that it is a black box approach. In other words, while we can verify the accuracy of the model, it is difficult to inspect the algorithm and understand exactly what it is doing. For interpretability of results, understanding how the algorithm reached its conclusions could be important to have. In this case, with a background in the course and statistics in general, it does not present a large issue.
+
+Now for prediction,
+
+
+
+
+## Boosting
+
+Now we will consider using boosting methods to predict housing prices. We will use the gbm library in order to fit a gradient boosting model and tune parameters for the best fit.
+
+```{r}
+## Consider putting na back
+x_train_rand <- read.csv("x_train_all.csv")
+x_test_rand <- read.csv("x_test_all.csv")
+y_train_rand <- read.csv("y_train_all.csv")
+y_test_rand <- read.csv("y_test_all.csv")
+
+x_train_rand <- x_train_rand[,-11]
+x_test_rand <- x_test_rand[,-11]
+y_train_rand <- log(data.frame(y_train_rand$y))
+y_test_rand <- log(data.frame(y_test_rand$y))
+
+library(gam)
+library(mgcv)
+library(gbm)
+
+# Prediction sets
+test1f <- housing_no_miss[housing_no_miss$fold == 1,]
+test2f <- housing_no_miss[housing_no_miss$fold == 2,]
+test3f <- housing_no_miss[housing_no_miss$fold == 3,]
+test4f <- housing_no_miss[housing_no_miss$fold == 4,]
+test5f <- housing_no_miss[housing_no_miss$fold == 5,]
+
+train1f <- housing_no_miss[housing_no_miss$fold %in% c(2:5),]
+train2f <- housing_no_miss[housing_no_miss$fold %in% c(1,2:5),]
+train3f <- housing_no_miss[housing_no_miss$fold %in% c(1:2,4:5),]
+train4f <- housing_no_miss[housing_no_miss$fold %in% c(1:3,5),]
+train5f <- housing_no_miss[housing_no_miss$fold %in% c(1:4),]
+
+y_train1f <- log(data.frame(train1f$PRICE))
+y_train2f <- log(data.frame(train2f$PRICE))
+y_train3f <- log(data.frame(train3f$PRICE))
+y_train4f <- log(data.frame(train4f$PRICE))
+y_train5f <- log(data.frame(train5f$PRICE))
+
+x_train1f <- train1f[,-11]
+x_train2f <- train2f[,-11]
+x_train3f <- train3f[,-11]
+x_train4f <- train4f[,-11]
+x_train5f <- train5f[,-11]
+
+y_test1f <- log(data.frame(test1f$PRICE))
+y_test2f <- log(data.frame(test2f$PRICE))
+y_test3f <- log(data.frame(test3f$PRICE))
+y_test4f <- log(data.frame(test4f$PRICE))
+y_test5f <- log(data.frame(test5f$PRICE))
+
+x_test1f <- test1f[,-11]
+x_test2f <- test2f[,-11]
+x_test3f <- test3f[,-11]
+x_test4f <- test4f[,-11]
+x_test5f <- test5f[,-11]
+
+getSample <- function(pop, samplesize, x, y, seed_val) {
+  set.seed(seed_val)
+  i_sam <- sample(pop, samplesize)
+  x_sam <- x[c(i_sam),]
+  y_sam <- y[c(i_sam),]
+  list(x=x_sam, y=y_sam)
+}
+
+# Change to 100
+Ssamples_rand <- lapply(1:10, FUN = function(i) {
+  getSample(29541, 2000, x_train_rand, y_train_rand, i)
+}) 
+
+Tsamples_rand <- lapply(1:10, FUN = function(i) {
+  getSample(9848, 1000, x_test_rand, y_test_rand, i)
+}) 
+```
+
+final
+```{r,warning=FALSE}
+rmlse <- function(Ssamples, Tsamples, hyper, modelType) {
+  N_S <- length(Ssamples)
+  mean(sapply (1:N_S,
+               FUN = function(j) {
+               S_j <- Ssamples[[j]]
+               
+               # Smoothing
+               if (modelType == "TPS") {
+                 muhat <- get_muhat_tps(S_j, df=hyper)
+               }
+               
+               # Smoothing Interaction
+               if (modelType == "TPS_INT") {
+                 muhat <- get_muhat_tps_int(S_j, df=hyper)
+               }
+               
+               # Random Forests 
+               if (modelType == "RF") {
+                 muhat <- get_muhat_rf(S_j, df=hyper)
+               }
+               
+               # Boosting Depth
+               if (modelType == "BST_DEP") {
+                 muhat <- get_muhat_bst_depth(S_j, depth=hyper)
+               }
+               
+               # Boosting Shrinkage
+               if (modelType == "BST_SHR") {
+                 muhat <- get_muhat_bst_shr(S_j, lambda=hyper)
+               }
+               
+               T_j <- Tsamples[[j]]
+               ave_y_mu_sq(T_j, muhat)
+               })
+       )
+}
+
+library(gbm)
+
+# For interaction depth
+ave_y_mu_sq <- function(sample, predfun) {
+  sqrt(mean(abs(sample$y - predfun(sample)) ^2))
+}
+
+get_muhat_bst_depth <- function(sample, depth) {
+  fit <- gbm(y ~ x$GBA + x$GRADE + x$SALE_YEAR + x$BATHRM + x$LONGITUDE, data = sample, n.trees = 50, shrinkage = 0.01,
+             interaction.depth = depth, distribution = "gaussian")
+  muhat <- function(input) {
+    predict(fit, input, n.trees = 50)
+  }
+  muhat
+}
+
+rmlse_list <- c()
+for (i in 1:20) {
+  model_rmlse <- rmlse(Ssamples_rand, Tsamples_rand, hyper = i, modelType = "BST_DEP")
+  rmlse_list <- c(rmlse_list, model_rmlse)
+}
+
+plot(1:20, rmlse_list)
+```
+
+```{r}
+get_muhat_bst_shr <- function(sample,lambda) {
+  fit <- gbm(y~x$GBA + x$GRADE + x$SALE_YEAR + x$BATHRM + x$LONGITUDE + x$WARD_NUM + x$CNDTN,
+             data = sample, n.trees = 200, shrinkage = lambda, 
+             interaction.depth = 20, distribution = "gaussian")
+  muhat <- function(input) {
+    predict(fit, input, n.trees = 200)
+  }
+  muhat
+}
+
+rmlse_list <- c()
+complexity <- c(seq(0, 0.2, 0.005))
+
+for (i in complexity) {
+  model_rmlse <- rmlse(Ssamples_rand, Tsamples_rand, hyper = i, modelType = "BST_SHR")
+  rmlse_list <- c(rmlse_list, model_rmlse)
+}
+
+plot(complexity, rmlse_list)
+```
+
+
+
+
+
+```{r}
+df1 <- cbind(x_train1f,y_train1f)
+model1 <- gbm(train1f.PRICE~GBA + GRADE + SALE_YEAR + BATHRM + LONGITUDE + WARD_NUM + CNDTN, data = df1, n.trees = 200, interaction.depth = 20, shrinkage = 0.035, distribution = "gaussian")
+model1.pred <- predict(model1, x_test1f, n.trees = 200)
+
+df2 <- cbind(x_train2f,y_train2f)
+model2 <- gbm(train2f.PRICE~GBA + GRADE + SALE_YEAR + BATHRM + LONGITUDE + WARD_NUM + CNDTN, data=df2, n.trees = 200, interaction.depth = 20, shrinkage = 0.035, distribution = "gaussian")
+model2.pred <- predict(model2, x_test2f, n.trees = 200)
+
+df3 <- cbind(x_train3f,y_train3f)
+model3 <- gbm(train3f.PRICE~GBA + GRADE + SALE_YEAR + BATHRM + LONGITUDE + WARD_NUM + CNDTN, data=df3, n.trees = 200, interaction.depth = 20, shrinkage = 0.035, distribution = "gaussian")
+model3.pred <- predict(model3, x_test3f, n.trees = 200)
+
+df4 <- cbind(x_train4f,y_train4f)
+model4 <- gbm(train4f.PRICE~GBA + GRADE + SALE_YEAR + BATHRM + LONGITUDE + WARD_NUM + CNDTN, data=df4, n.trees = 200, interaction.depth = 20, shrinkage = 0.035, distribution = "gaussian")
+model4.pred <- predict(model4, x_test4f, n.trees = 200)
+
+df5 <- cbind(x_train5f,y_train5f)
+model5 <- gbm(train5f.PRICE~GBA + GRADE + SALE_YEAR + BATHRM + LONGITUDE + WARD_NUM + CNDTN, data=df5, n.trees = 200,
+              interaction.depth = 20, shrinkage = 0.035, distribution = "gaussian")
+model5.pred <- predict(model5, x_test5f, n.trees = 200)
+
+a <- cbind(x_test1f$Id, model1.pred, y_test1f$test1f.PRICE)
+b <- cbind(x_test2f$Id, model2.pred, y_test2f$test2f.PRICE)
+c <- cbind(x_test3f$Id, model3.pred, y_test3f$test3f.PRICE)
+d <- cbind(x_test4f$Id, model4.pred, y_test4f$test4f.PRICE)
+f <- cbind(x_test5f$Id, model5.pred, y_test5f$test5f.PRICE)
+
+boosting_preds <- rbind(a,b,c,d,f)
+boosting_preds <- boosting_preds[order(boosting_preds[,1]),]
+
+rmlse_bst <- sqrt(mean(abs(boosting_preds[,3] - boosting_preds[,2])^2))
+rmlse_bst
+
+## Creating the submission file
+boosting_preds <- data.frame(boosting_preds[,c(1,2)])
+boosting_preds[,2] <- exp(boosting_preds[,2])
+colnames(boosting_preds) <- c("Id","PRICE")
+write.csv(boosting_preds,"boosting_predictions3.csv",row.names = FALSE)
+```
+
+# Smoothing
+
+
+
+```{r}
+get_muhat_tps <- function(sample, df) {
+  x <- sample$x
+  y <- sample$y
+  data <- cbind(x,y)
+  fit <- gam(y ~ s(GBA, k=df) +
+                 s(GRADE, k=df) +
+                 s(SALE_YEAR, k=df) +
+                 s(BATHRM, k=df) +
+                 s(LONGITUDE, k=df),
+             data=data)
+  muhat <- function(x) {
+    predict(fit, x=x)
+  }
+  muhat
+}
+
+rmlse_list <- c()
+complexity <- c(3:5)
+
+for (i in 3:5) {
+  model_rmlse <- rmlse(Ssamples_rand, Tsamples_rand, i, "TPS")
+  rmlse_list <- c(rmlse_list, model_rmlse)
+}
+
+plot(complexity, rmlse_list, xlab="Basis Dimensions", ylab="RMLSE", ylim=extendrange(rmlse_list), main="APSE by Basis Dimension")
+lines(complexity, rmlse_list, lwd=1, col="red", lty=2)
+points(complexity, rmlse_list, pch=19, col="black")
+```
+
+```{r}
+new_rmlse_list <- c()
+complexity <- c(57:70)
+
+get_muhat_tps_int <- function(sample, df) {
+  fit <- gam(y ~ s(x$GBA, x$GRADE, x$SALE_YEAR, x$BATHRM, x$LONGITUDE, bs="tp", k=df), data=sample)
+  muhat <- function(x) {
+    predict(fit, x=x)
+  }
+  muhat
+}
+
+for (i in 57:70) {
+  model_rmlse <- rmlse(Ssamples_rand, Tsamples_rand, i, "TPS_INT")
+  new_rmlse_list <- c(new_rmlse_list, model_rmlse)
+}
+
+plot(complexity, new_rmlse_list, xlab="Basis Dimensions", ylab="RMLSE", ylim=extendrange(new_rmlse_list), main="APSE by Basis Dimension")
+lines(complexity, new_rmlse_list, lwd=1, col="red", lty=2)
+points(complexity, new_rmlse_list, pch=19, col="black")
+```
+
+```{r}
+d <- cbind(x_train_rand, y_train_rand)
+colnames(d)[ncol(d)] <- "price"
+
+fit1 <- gam(price~s(GBA), data=d)
+gam.check(fit1)
+
+fit2 <- gam(price~s(GBA, k=8) + s(GRADE, k=8) + s(SALE_YEAR, k=8) + s(BATHRM, k=8) + s(LONGITUDE, k=8), data=d)
+gam.check(fit2)
+
+fit3 <- gam(price~s(GBA, k=11) + s(GRADE, k=11) + s(SALE_YEAR, k=11) + s(BATHRM, k=11) + s(LONGITUDE, k=11), data=d)
+gam.check(fit3)
+
+fit4 <- gam(price~s(GBA, k=6) + s(GRADE, k=6) + s(SALE_YEAR, k=6) + s(BATHRM, k=6) + s(LONGITUDE, k=6) +
+              s(WARD_NUM, k=6) + s(CNDTN, k=6) + s(LANDAREA, k=6) + s(ROOMS, k=6), data=d)
+gam.check(fit4)
+
+```
+
+```{r}
+deg <- 6
+
+df1 <- cbind(x_train1f, y_train1f)
+model1 <- gam(train1f.PRICE ~ s(GBA,  k=deg) + s(GRADE,  k=deg) + s(SALE_YEAR,  k=deg) +
+                             s(BATHRM,  k=deg) + s(LONGITUDE,  k=deg) + s(WARD_NUM, k=deg) + s(CNDTN,  k=deg) +
+                             s(ROOMS,  k=deg) + s(BEDRM,  k=deg) + s(FIREPLACES,  k=deg) +
+                             s(LATITUDE,  k=deg) + s(LANDAREA,  k=deg) + s(YEARS_SINCE_EYB,  k=deg) +   
+                             s(YEARS_SINCE_IMPROVEMENT,  k=deg) + s(HF_BATHRM, k=deg) + s(SALE_MONTH, k=deg) +
+                             s(STORIES, k=deg), data=df1) 
+model1.pred <- predict(model1, x_test1f)
+
+df2 <- cbind(x_train2f, y_train2f)
+model2 <- gam(train2f.PRICE ~ s(GBA,  k=deg) + s(GRADE,  k=deg) + s(SALE_YEAR,  k=deg) +
+                             s(BATHRM,  k=deg) + s(LONGITUDE,  k=deg) + s(WARD_NUM, k=deg) + s(CNDTN,  k=deg) +
+                             s(ROOMS, k=deg) + s(BEDRM,  k=deg) + s(FIREPLACES,  k=deg) +
+                             s(LATITUDE,  k=deg) + s(LANDAREA,  k=deg) + s(YEARS_SINCE_EYB,  k=deg) +   
+                             s(YEARS_SINCE_IMPROVEMENT,  k=deg) + s(HF_BATHRM, k=deg) + s(SALE_MONTH, k=deg) +
+                             s(STORIES, k=deg), data=df2)
+model2.pred <- predict(model2, x_test2f)
+
+df3 <- cbind(x_train3f, y_train3f)
+model3 <- gam(train3f.PRICE ~ s(GBA, k=deg) + s(GRADE,  k=deg) + s(SALE_YEAR,  k=deg) +
+                             s(BATHRM,  k=deg) + s(LONGITUDE,  k=deg) + s(WARD_NUM,  k=deg) + s(CNDTN,  k=deg) +
+                             s(ROOMS,  k=deg) + s(BEDRM,  k=deg) + s(FIREPLACES,  k=deg) +
+                             s(LATITUDE,  k=deg) + s(LANDAREA,  k=deg) + s(YEARS_SINCE_EYB,  k=deg) +
+                             s(YEARS_SINCE_IMPROVEMENT,  k=deg) + s(HF_BATHRM, k=deg) + s(SALE_MONTH, k=deg) +
+                             s(STORIES, k=deg), data=df3)
+model3.pred <- predict(model3, x_test3f)
+
+df4 <- cbind(x_train4f, y_train4f)
+model4 <- gam(train4f.PRICE~ s(GBA,  k=deg) + s(GRADE,  k=deg) + s(SALE_YEAR,  k=deg) +
+                             s(BATHRM,  k=deg) + s(LONGITUDE,  k=deg) + s(WARD_NUM,  k=deg) + s(CNDTN,  k=deg) +
+                             s(ROOMS,  k=deg) + s(BEDRM,  k=deg) + s(FIREPLACES,  k=deg) +
+                             s(LATITUDE,  k=deg) + s(LANDAREA,  k=deg) + s(YEARS_SINCE_EYB,  k=deg) +       
+                             s(YEARS_SINCE_IMPROVEMENT,  k=deg) + s(HF_BATHRM, k=deg) + s(SALE_MONTH, k=deg) +
+                             s(STORIES, k=deg), data=df4)
+model4.pred <- predict(model4, x_test4f)
+
+df5 <- cbind(x_train5f, y_train5f)
+model5 <- gam(train5f.PRICE~ s(GBA, k=deg) + s(GRADE,  k=deg) + s(SALE_YEAR,  k=deg) +
+                             s(BATHRM,  k=deg) + s(LONGITUDE,  k=deg) + s(WARD_NUM,  k=deg) + s(CNDTN,  k=deg) +
+                             s(ROOMS,  k=deg) + s(BEDRM,  k=deg) + s(FIREPLACES,  k=deg) +
+                             s(LATITUDE,  k=deg) + s(LANDAREA,  k=deg) + s(YEARS_SINCE_EYB,  k=deg) +        
+                             s(YEARS_SINCE_IMPROVEMENT,  k=deg) + s(HF_BATHRM, k=deg) + s(SALE_MONTH, k=deg) +
+                             s(STORIES, k=deg), data=df5)
+model5.pred <- predict(model5, x_test5f)
+
+a <- cbind(x_test1f$Id, model1.pred, y_test1f$test1f.PRICE)
+b <- cbind(x_test2f$Id, model2.pred, y_test2f$test2f.PRICE)
+c <- cbind(x_test3f$Id, model3.pred, y_test3f$test3f.PRICE)
+d <- cbind(x_test4f$Id, model4.pred, y_test4f$test4f.PRICE)
+f <- cbind(x_test5f$Id, model5.pred, y_test5f$test5f.PRICE)
+
+smoothing_preds <- rbind(a,b,c,d,f)
+smoothing_preds <- smoothing_preds[order(smoothing_preds[,1]),]
+
+rmlse_smooth <- sqrt(mean(abs(smoothing_preds[,3]-smoothing_preds[,2])^2))
+rmlse_smooth
+
+
+## Creating the submission file
+smoothing_preds <- data.frame(smoothing_preds[,c(1,2)])
+smoothing_preds[,2] <- exp(smoothing_preds[,2])
+colnames(smoothing_preds) <- c("Id","PRICE")
+write.csv(smoothing_preds,"smoothing_predictions1.csv", row.names = FALSE)
+```
+
+# Statistical conclusions
+
+From the exploratory data analysis, model building and interpretation of results, we can conclude the following results.
+
+It was found that the best model was
+
+# Future work 
+
+It is beneficial to reflect on work and if we had a chance, there are some changes or different things that we would have tried out for model building. These may have resulted in a better prediction of housing prices so it should be considered in any related or future work.
+
+Looking beyond the scope of Stat 444, some sort of neural network structure could be looked at for prediction. Neural networks are a fairly mainstream model type, the most commonly understood is the recurrent neural network. A different data preprocessing method could have been done in order to fit the dataframe into  model. We would have considered looking into the $keras$ and $caret$ libraries if we were to complete this exercise in python and R, respectively.
+
+Considering and testing more methods should be considered in future work. The approach taken for this report was to model random forests, boosting methods and splines with only one variation and obtain the best result from that. However, just even just for splines there are other variations that may have been better or worse for the structure of our data. It would be of interest to consider with methods outperform each other for a baseline test, and then hypertuning the parameters of the best method.
+
+While we created our own features from existing ones in attempt to fit some more potential parameters, the parameters that we created were not very sophisticated. We created variables based on the original SALE_DATE columnm and it made the variables about time more informative (e.g SALE_MONTH, SALE_YEAR, YEARS_SINCE..., etc.), Coupling domain knowledge and feature engineering could lead to more descriptive and important features. For example, we have data about neighbourhoods, so if there was a chance for more research, a mapping between neighbourhood and safety ranking, education ranking or mean neighbourhood income could have been used to retain more information and expand our dataset. The issue is then finding these ranking information datasets could prove difficult and mapping two data sets could lead to data leakage.
+
+# Conclusion
+
+Based on model fitting results and prediction error metrics, we can conclude a few points about the D.C residential housing prices dataset. We find that
+
+It was found through the analysis of the most important variables that the data seems to support the claim that the D.C residential area is highly segregated. This is most evident in the partial dependence plots for ward and longitude, both location based variables.
+
+\newpage
+
+# Appendix
+
+## Appendix A:
+
+Description of all the variables in the initial D.C residential housing dataset. 
+
+* **Id** : used for Kaggle submission and identifying house sale, otherwise not used
+
+* **BATHRM**: number of full bathrooms, numeric variable
+
+* **HF_BATHRM**: number of half bathrooms, numeric variable
+
+* **HEAT**: type of heating available at the house, categorical variable
+
+* **AC**: whether or not the house has air conditioning available (Y/N), categorical variable
+Also contains 0 as a value, which was assumed to correspond to N
+
+* **ROOMS**: number of rooms in the house, numeric variable
+Through investigation it was found that number of kitchens do not contribute to the number of rooms
+
+* **BEDRM**: number of bedrooms, numeric variable
+
+* **AYB**: the earliest time the main portion of the building was constructed, numeric variable
+
+* **YR_RMDL**: the year that the building was remodeled
+Very similar to the EYB column, however remodel is more vague so we decided to keep it
+
+* **EYB**: the years that an improvement was done to the building, numeric variable
+
+* **STORIES**: the number of stories that the building has, numeric variable
+
+* **SALEDATE**: the date of the most recent sale, numeric variable
+
+* **PRICE**: the price of the most recent sale of the house, numeric variable
+
+* **GBA**: stands for gross building area in square feet, numeric variable
+
+* **STYLE**: describes the style of the house (detached, number of stories, etc.), categorical variable
+
+* **STRUCT**: another variable that qualitative structure of the house (row inside, semi-detached, etc), categorical variable
+
+* **GRADE**: describes the overall quality of the house on a scale from Superior to Low Quality, categorical variable
+
+* **CNDTN**: describes the overall condition on a scale from Excellent to Poor, categorical variable
+
+* **EXTWALL**: describes the material of the the exterior wall, categorical variable
+
+* **ROOF**: describes the type of roof the house has, categorical variable
+
+* **INTWALL**: describes the material of the interior wall, categorical variable
+
+* **KITCHENS**: number of kitchens, numeric variable
+
+* **FIREPLACES**: number of fireplaces, numeric variable
+
+* **USECODE**: describes the usecode for regulation purposes, categorical variable
+
+* **LANDAREA**: land area of the property in square feet, numeric variable
+
+* **FULLADDRESS**: full street address, categorical variable
+
+* **ZIPCODE**: lists the corresponding postal code for the house, categorical variable
+
+* **NATIONALGRID**: address information based off of the national grid coordinate adress, categorical
+
+* **LATITUDE**: latitude, numeric variable
+
+* **LONGITUDE**: longtitude, numeric variable 
+
+* **ASSESSMENT_NBHD**: describes which district/neighbourhood that the house resides in, categorical variable
+
+* **ASSESSMENT_SUBNBHD**: further describes the neighbourhood, categorical variable
+However, this will be empty if the ASSESSMENT_NBHD is enough
+
+* **CENSUS_TRACT**: describes which geographical area the house belongs to for national surveys, categorical variable
+
+* **CENSUS_BLOCK**: describes same thing as the CENSUS_TRACT column, but more precise
+
+* **WARD**: describes which of the eight D.C wards that the house belongs to, categorical variable
+
+* **QUADRANT**: describes which city quadrant that the house resides in, categorical variable
+
+* **fold**: variable used for our k-fold cross validation and predictions for Kaggle submission, otherwise not used.
