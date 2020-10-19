@@ -1,0 +1,785 @@
+---
+title: "Appendix"
+author: "Vincent Le"
+date: '2019-04-17'
+output: pdf_document
+---
+
+# Appendix
+
+This is the appendix for the report titled "D.C. Residential Properties Price Prediction" by Felicia Jiang and Vincent Le.
+
+## Appendix A:
+The code for creating histograms.
+```{r,eval=FALSE}
+set.seed(123)
+# Load in the D.C residential housing price dataset
+knitr::opts_knit$set(root.dir = "/Users/vincentle/Downloads/Stat 444")
+setwd("/Users/vincentle/Downloads/Stat 444")
+housing <- read.csv("housing_price_missing.csv")
+housing_no_miss <- read.csv("housing_price_no_missing.csv")
+hist(housing$PRICE, main = "D.C residential housing prices", xlab = "Price ($)", ylab = "Count")
+```
+
+```{r,warning=FALSE,echo=FALSE,eval=FALSE}
+log_price <- log(housing$PRICE)
+#hist(log(housing$PRICE), main = "D.C residential housing prices (logged)", xlab = "Price ($)", ylab = "Count")
+hist(log_price, main = "D.C residential housing prices (logged)", xlab = "Price ($)", ylab = "Count")
+```
+\newpage
+## Appendix B:
+
+Description of all the variables in the initial D.C residential housing dataset. 
+
+* **Id** : used for Kaggle submission and identifying house sale, otherwise not used
+
+* **BATHRM**: number of full bathrooms, numeric variable
+
+* **HF_BATHRM**: number of half bathrooms, numeric variable
+
+* **HEAT**: type of heating available at the house, categorical variable
+
+* **AC**: whether or not the house has air conditioning available (Y/N), categorical variable
+Also contains 0 as a value, which was assumed to correspond to N
+
+* **ROOMS**: number of rooms in the house, numeric variable
+Through investigation it was found that number of kitchens do not contribute to the number of rooms
+
+* **BEDRM**: number of bedrooms, numeric variable
+
+* **AYB**: the earliest time the main portion of the building was constructed, numeric variable
+
+* **YR_RMDL**: the year that the building was remodeled
+Very similar to the EYB column, however remodel is more vague so we decided to keep it
+
+* **EYB**: the years that an improvement was done to the building, numeric variable
+
+* **STORIES**: the number of stories that the building has, numeric variable
+
+* **SALEDATE**: the date of the most recent sale, numeric variable
+
+* **PRICE**: the price of the most recent sale of the house, numeric variable
+
+* **GBA**: stands for gross building area in square feet, numeric variable
+
+* **STYLE**: describes the style of the house (detached, number of stories, etc.), categorical variable
+
+* **STRUCT**: another variable that qualitative structure of the house (row inside, semi-detached, etc), categorical variable
+
+* **GRADE**: describes the overall quality of the house on a scale from Superior to Low Quality, categorical variable
+
+* **CNDTN**: describes the overall condition on a scale from Excellent to Poor, categorical variable
+
+* **EXTWALL**: describes the material of the the exterior wall, categorical variable
+
+* **ROOF**: describes the type of roof the house has, categorical variable
+
+* **INTWALL**: describes the material of the interior wall, categorical variable
+
+* **KITCHENS**: number of kitchens, numeric variable
+
+* **FIREPLACES**: number of fireplaces, numeric variable
+
+* **USECODE**: describes the usecode for regulation purposes, categorical variable
+
+* **LANDAREA**: land area of the property in square feet, numeric variable
+
+* **FULLADDRESS**: full street address, categorical variable
+
+* **ZIPCODE**: lists the corresponding postal code for the house, categorical variable
+
+* **NATIONALGRID**: address information based off of the national grid coordinate adress, categorical
+
+* **LATITUDE**: latitude, numeric variable
+
+* **LONGITUDE**: longtitude, numeric variable 
+
+* **ASSESSMENT_NBHD**: describes which district/neighbourhood that the house resides in, categorical variable
+
+* **ASSESSMENT_SUBNBHD**: further describes the neighbourhood, categorical variable
+However, this will be empty if the ASSESSMENT_NBHD is enough
+
+* **CENSUS_TRACT**: describes which geographical area the house belongs to for national surveys, categorical variable
+
+* **CENSUS_BLOCK**: describes same thing as the CENSUS_TRACT column, but more precise
+
+* **WARD**: describes which of the eight D.C wards that the house belongs to, categorical variable
+
+* **QUADRANT**: describes which city quadrant that the house resides in, categorical variable
+
+* **fold**: variable used for our k-fold cross validation and predictions for Kaggle submission, otherwise not used.
+
+## Appendix C:
+
+Code for creating the training and testing sets.
+
+```{r,eval=FALSE}
+sample <- sample.int(n = nrow(housing), size = floor(.75*nrow(housing_no_miss)), replace = F)
+train <- housing_no_miss[sample, ]
+test  <- housing_no_miss[-sample, ]
+
+x_train <- train[,-11]
+x_test <- test[,-11]
+y_train <- data.frame(log(train$PRICE))
+colnames(y_train) <- "PRICE"
+y_test <- data.frame(log(test$PRICE))
+colnames(y_test) <- 'PRICE'
+
+write.csv(x_train, "x_train_na.csv")
+write.csv(x_test, "x_test_na.csv")
+write.csv(y_train, "y_train_na.csv")
+write.csv(y_test, "y_test_na.csv")
+```
+\newpage
+## Appendix D:
+
+All code for random forest.
+
+```{r, echo = FALSE,eval=FALSE}
+library(ranger)
+h <- ranger(PRICE~.,data=na.omit(housing_no_miss),mtry=4,num.trees=200,importance="impurity")
+dotchart(h$variable.importance[order(h$variable.importance)])
+```
+
+```{r,eval =FALSE}
+library(pdp)
+# partial dependence
+partial(h, pred.var = "GBA", plot = TRUE, plot.engine = "ggplot2")
+partial(h, pred.var = "BATHRM", plot = TRUE, plot.engine = "ggplot2")
+partial(h, pred.var = "GRADE", plot = TRUE, plot.engine = "ggplot2")
+partial(h, pred.var = "SALE_YEAR", plot = TRUE, plot.engine = "ggplot2")
+partial(h, pred.var = "LONGITUDE", plot = TRUE, plot.engine = "ggplot2")
+partial(h, pred.var = "WARD_NUM", plot = TRUE, plot.engine = "ggplot2")
+partial(h, pred.var = "CNDTN", plot = TRUE, plot.engine = "ggplot2")
+```
+
+```{r,warning=FALSE,echo=FALSE,eval=FALSE}
+library(tree)
+library(randomForest)
+
+x_train <- x_train[,c("GBA","GRADE","SALE_YEAR","BATHRM","LONGITUDE","WARD_NUM","CNDTN")]
+get_muhat_rf <- function(sample, mtry) {
+  df <- cbind(sample$x,sample$y)
+  colnames(df)[8] = "PRICE"
+  fit <- ranger(PRICE~.,data=df, num.trees = 200, mtry=mtry, importance = "impurity")
+  
+  muhat <- function(x){predict(fit,data=x,ntree=200)$predictions}
+  muhat
+}
+
+# Generate samples
+getSample <- function(pop, samplesize, x, y, seed_val) {
+  set.seed(seed_val)
+  i_sam <- sample(pop, samplesize, replace = TRUE)
+  x_sam <- x[c(i_sam),]
+  y_sam <- y[c(i_sam),]
+  list(x=x_sam, y=y_sam)
+}
+
+# Generate 100 samples of test and train
+Ssamples <- lapply(1:10, FUN = function(i) {
+  getSample(29541, 2000, na.omit(x_train), na.omit(y_train), i)
+}) 
+
+Tsamples <- lapply(1:10, FUN = function(i) {
+  getSample(9848, 1000, na.omit(x_test), na.omit(y_test), i)
+})
+
+ave_y_mu_sq <- function(sample, predfun) {
+  mean(abs(sample$y - predfun(sample$x)) ^ 2)
+  #print(mean(abs(sample$y - predfun(sample$x)) ^ 2))
+}
+
+apse <- function(Ssamples, Tsamples, hyper, modelType) {
+  N_S <- length(Ssamples)
+  mean(sapply (1:N_S,
+               FUN = function(j) {
+               S_j <- Ssamples[[j]]
+               
+               # Smoothing
+               if (modelType == "TPS") {
+                 muhat <- get_muhat_tps(S_j, df=hyper)
+               }
+               
+               # Random forests 
+               if (modelType == "RF") {
+                 muhat <- get_muhat_rf(S_j, mtry=hyper)
+               }
+               
+               # Boosting Depth
+               if (modelType == "BST_DEP") {
+                 muhat <- get_muhat_bst_depth(S_j, depth=hyper)
+               }
+               
+               # Boosting Shrinkage
+               if (modelType == "BST_SHR") {
+                 muhat <- get_muhat_bst_shrinkage(S_j, lambda=hyper)
+               }
+               
+               T_j <- Tsamples[[j]]
+               
+               ## Boosting calculations
+               if (modelType == "BST_DEP" || modelType == "BST_SHR") {
+                 ave_y_mu_sq_boost(T_j, muhat)
+               }
+               else ave_y_mu_sq(T_j, muhat)
+               })
+       )
+}
+
+apse_list <- c()
+complexity <- c(4:7)
+
+for (i in complexity) {
+  model_apse <- apse(Ssamples, Tsamples, hyper = i, modelType = "RF")
+  apse_list <- c(apse_list,model_apse)
+}
+plot(complexity,apse_list, main = "RMLSE for different values of mtry", ylab = "RMLSE")
+```
+
+```{r,eval=FALSE}
+test1 <- housing[housing$fold == 1,]
+test2 <- housing[housing$fold == 2,]
+test3 <- housing[housing$fold == 3,]
+test4 <- housing[housing$fold == 4,]
+test5 <- housing[housing$fold == 5,]
+
+train1 <- housing[housing$fold %in% c(2:5),]
+train2 <- housing[housing$fold %in% c(1,3:5),]
+train3 <- housing[housing$fold %in% c(1:2,4:5),]
+train4 <- housing[housing$fold %in% c(1:3,5),]
+train5 <- housing[housing$fold %in% c(1:4),]
+
+y_train1 <- data.frame(log(train1$PRICE))
+y_train2 <- data.frame(log(train2$PRICE))
+y_train3 <- data.frame(log(train3$PRICE))
+y_train4 <- data.frame(log(train4$PRICE))
+y_train5 <- data.frame(log(train5$PRICE))
+
+x_train1 <- train1[,-11]
+x_train2 <- train2[,-11]
+x_train3 <- train3[,-11]
+x_train4 <- train4[,-11]
+x_train5 <- train5[,-11]
+
+y_test1 <- data.frame(log(test1$PRICE))
+y_test2 <- data.frame(log(test2$PRICE))
+y_test3 <- data.frame(log(test3$PRICE))
+y_test4 <- data.frame(log(test4$PRICE))
+y_test5 <- data.frame(log(test5$PRICE))
+
+x_test1 <- test1[,-11]
+x_test2 <- test2[,-11]
+x_test3 <- test3[,-11]
+x_test4 <- test4[,-11]
+x_test5 <- test5[,-11]
+
+## final testing sets by fold
+train1f <- housing_no_miss[housing_no_miss$fold == 1,]
+train2f <- housing_no_miss[housing_no_miss$fold == 2,]
+train3f <- housing_no_miss[housing_no_miss$fold == 3,]
+train4f <- housing_no_miss[housing_no_miss$fold == 4,]
+train5f <- housing_no_miss[housing_no_miss$fold == 5,]
+
+test1f <- housing_no_miss[housing_no_miss$fold == 1,]
+test2f <- housing_no_miss[housing_no_miss$fold == 2,]
+test3f <- housing_no_miss[housing_no_miss$fold == 3,]
+test4f <- housing_no_miss[housing_no_miss$fold == 4,]
+test5f <- housing_no_miss[housing_no_miss$fold == 5,]
+
+y_test1f <- data.frame(log(test1f$PRICE))
+y_test2f <- data.frame(log(test2f$PRICE))
+y_test3f <- data.frame(log(test3f$PRICE))
+y_test4f <- data.frame(log(test4f$PRICE))
+y_test5f <- data.frame(log(test5f$PRICE))
+
+x_test1f <- test1f[,-11]
+x_test2f <- test2f[,-11]
+x_test3f <- test3f[,-11]
+x_test4f <- test4f[,-11]
+x_test5f <- test5f[,-11]
+
+x_train <- rbind(x_train1,x_train2,x_train3,x_train4,x_train5)
+colnames(y_train1) <- "PRICE"
+colnames(y_train2) <- "PRICE"
+colnames(y_train3) <- "PRICE"
+colnames(y_train4) <- "PRICE"
+colnames(y_train5) <- "PRICE"
+
+y_train <- rbind(y_train1,y_train2,y_train3,y_train4,y_train5)
+```
+
+```{r,eval=FALSE}
+## Predictions 
+df1 <- cbind(x_train1,y_train1)
+model1 <- ranger(PRICE~GBA + GRADE + SALE_YEAR + BATHRM + LONGITUDE + WARD_NUM + CNDTN, data = df1, mtry= 4,num.trees = 200, importance = 'impurity')
+model1.pred <- predict(model1, x_test1f,mtry= 4, importance = 'impurity', num.trees = 200)
+
+df2 <- cbind(x_train2,y_train2)
+model2 <- ranger(PRICE~GBA + GRADE + SALE_YEAR + BATHRM + LONGITUDE + WARD_NUM + CNDTN, data=df2,mtry= 4, num.trees = 200, importance = 'impurity')
+model2.pred <- predict(model2, x_test2f,mtry= 4, importance = 'impurity', num.trees = 200)
+
+df3 <- cbind(x_train3,y_train3)
+model3 <- ranger(PRICE~GBA + GRADE + SALE_YEAR + BATHRM + LONGITUDE + WARD_NUM + CNDTN, data=df3,mtry= 4, num.trees = 200, importance = 'impurity')
+model3.pred <- predict(model3, x_test3f, mtry=4,importance = 'impurity', num.trees = 200)
+
+df4 <- cbind(x_train4,y_train4)
+model4 <- ranger(PRICE~GBA + GRADE + SALE_YEAR + BATHRM + LONGITUDE + WARD_NUM + CNDTN, mtry= 4,data=df4, num.trees = 200, importance = 'impurity')
+model4.pred <- predict(model4, x_test4f, mtry=4,importance = 'impurity', num.trees = 200)
+
+df5 <- cbind(x_train5,y_train5)
+model5 <- ranger(PRICE~GBA + GRADE + SALE_YEAR + BATHRM + LONGITUDE + WARD_NUM + CNDTN, data=df5, num.trees = 200,
+              importance = 'impurity')
+model5.pred <- predict(model5, x_test5f, mtry=4,importance = 'impurity', num.trees = 200)
+
+a <- cbind(x_test1f$Id, model1.pred$predictions,data.frame(y_test1f$log.test1f.PRICE.))
+colnames(a) <- c("Id","PRICE","y")
+b <- cbind(x_test2f$Id, model2.pred$predictions, data.frame(y_test2f$log.test2f.PRICE.))
+colnames(b) <- c("Id","PRICE","y")
+c <- cbind(x_test3f$Id, model3.pred$predictions, data.frame(y_test3f$log.test3f.PRICE.))
+colnames(c) <- c("Id","PRICE","y")
+d <- cbind(x_test4f$Id, model4.pred$predictions, data.frame(y_test4f$log.test4f.PRICE.))
+colnames(d) <- c("Id","PRICE","y")
+f <- cbind(x_test5f$Id, model5.pred$predictions, data.frame(y_test5f$log.test5f.PRICE.))
+colnames(f) <- c("Id","PRICE","y")
+
+rf_preds <- rbind(a,b,c,d,f)
+
+rmlse_rf <- sqrt(mean(abs(rf_preds[,3] - rf_preds[,2])^2))
+rmlse_rf
+
+
+## Creating the submission file
+rf_preds <- data.frame(rf_preds[,c(1,2)])
+rf_preds <- rf_preds[order(rf_preds[,1]),]
+rf_preds[,2] <- exp(rf_preds[,2])
+colnames(rf_preds) <- c("Id","PRICE")
+write.csv(rf_preds,"rf_predictions.csv",row.names = FALSE)
+```
+\newpage
+## Appendix E:
+
+All the code for boosting
+```{r,eval=FALSE}
+
+x_train_rand <- read.csv("x_train_all.csv")
+x_test_rand <- read.csv("x_test_all.csv")
+y_train_rand <- read.csv("y_train_all.csv")
+y_test_rand <- read.csv("y_test_all.csv")
+
+x_train_rand <- x_train_rand[,-11]
+x_test_rand <- x_test_rand[,-11]
+y_train_rand <- log(data.frame(y_train_rand$y))
+y_test_rand <- log(data.frame(y_test_rand$y))
+
+library(gam)
+library(mgcv)
+library(gbm)
+
+# Prediction sets
+test1f <- housing_no_miss[housing_no_miss$fold == 1,]
+test2f <- housing_no_miss[housing_no_miss$fold == 2,]
+test3f <- housing_no_miss[housing_no_miss$fold == 3,]
+test4f <- housing_no_miss[housing_no_miss$fold == 4,]
+test5f <- housing_no_miss[housing_no_miss$fold == 5,]
+
+train1f <- housing_no_miss[housing_no_miss$fold %in% c(2:5),]
+train2f <- housing_no_miss[housing_no_miss$fold %in% c(1,2:5),]
+train3f <- housing_no_miss[housing_no_miss$fold %in% c(1:2,4:5),]
+train4f <- housing_no_miss[housing_no_miss$fold %in% c(1:3,5),]
+train5f <- housing_no_miss[housing_no_miss$fold %in% c(1:4),]
+
+y_train1f <- log(data.frame(train1f$PRICE))
+y_train2f <- log(data.frame(train2f$PRICE))
+y_train3f <- log(data.frame(train3f$PRICE))
+y_train4f <- log(data.frame(train4f$PRICE))
+y_train5f <- log(data.frame(train5f$PRICE))
+
+x_train1f <- train1f[,-11]
+x_train2f <- train2f[,-11]
+x_train3f <- train3f[,-11]
+x_train4f <- train4f[,-11]
+x_train5f <- train5f[,-11]
+
+y_test1f <- log(data.frame(test1f$PRICE))
+y_test2f <- log(data.frame(test2f$PRICE))
+y_test3f <- log(data.frame(test3f$PRICE))
+y_test4f <- log(data.frame(test4f$PRICE))
+y_test5f <- log(data.frame(test5f$PRICE))
+
+x_test1f <- test1f[,-11]
+x_test2f <- test2f[,-11]
+x_test3f <- test3f[,-11]
+x_test4f <- test4f[,-11]
+x_test5f <- test5f[,-11]
+
+getSample <- function(pop, samplesize, x, y, seed_val) {
+  set.seed(seed_val)
+  i_sam <- sample(pop, samplesize)
+  x_sam <- x[c(i_sam),]
+  y_sam <- y[c(i_sam),]
+  list(x=x_sam, y=y_sam)
+}
+
+# Change to 100
+Ssamples_rand <- lapply(1:10, FUN = function(i) {
+  getSample(29541, 2000, x_train_rand, y_train_rand, i)
+}) 
+
+Tsamples_rand <- lapply(1:10, FUN = function(i) {
+  getSample(9848, 1000, x_test_rand, y_test_rand, i)
+}) 
+```
+
+```{r,eval=FALSE}
+rmlse <- function(Ssamples, Tsamples, hyper, modelType) {
+  N_S <- length(Ssamples)
+  mean(sapply (1:N_S,
+               FUN = function(j) {
+               S_j <- Ssamples[[j]]
+               
+               # Smoothing
+               if (modelType == "TPS") {
+                 muhat <- get_muhat_tps(S_j, df=hyper)
+               }
+               
+               # Smoothing Interaction
+               if (modelType == "TPS_INT") {
+                 muhat <- get_muhat_tps_int(S_j, df=hyper)
+               }
+               
+               # Random Forests 
+               if (modelType == "RF") {
+                 muhat <- get_muhat_rf(S_j, df=hyper)
+               }
+               
+               # Boosting Depth
+               if (modelType == "BST_DEP") {
+                 muhat <- get_muhat_bst_depth(S_j, depth=hyper)
+               }
+               
+               # Boosting Shrinkage
+               if (modelType == "BST_SHR") {
+                 muhat <- get_muhat_bst_shr(S_j, lambda=hyper)
+               }
+               
+               T_j <- Tsamples[[j]]
+               ave_y_mu_sq(T_j, muhat)
+               })
+       )
+}
+
+library(gbm)
+
+# For interaction depth
+ave_y_mu_sq <- function(sample, predfun) {
+  sqrt(mean(abs(sample$y - predfun(sample)) ^2))
+}
+
+get_muhat_bst_depth <- function(sample, depth) {
+  fit <- gbm(y ~ x$GBA + x$GRADE + x$SALE_YEAR + x$BATHRM + x$LONGITUDE, data = sample, n.trees = 50, shrinkage = 0.01,
+             interaction.depth = depth, distribution = "gaussian")
+  muhat <- function(input) {
+    predict(fit, input, n.trees = 50)
+  }
+  muhat
+}
+
+rmlse_list <- c()
+for (i in 1:20) {
+  model_rmlse <- rmlse(Ssamples_rand, Tsamples_rand, hyper = i, modelType = "BST_DEP")
+  rmlse_list <- c(rmlse_list, model_rmlse)
+}
+
+plot(1:20, rmlse_list)
+```
+
+```{r,eval = FALSE}
+get_muhat_bst_shr <- function(sample,lambda) {
+  fit <- gbm(y~x$GBA + x$GRADE + x$SALE_YEAR + x$BATHRM + x$LONGITUDE + x$WARD_NUM + x$CNDTN,
+             data = sample, n.trees = 200, shrinkage = lambda, 
+             interaction.depth = 20, distribution = "gaussian")
+  muhat <- function(input) {
+    predict(fit, input, n.trees = 200)
+  }
+  muhat
+}
+
+rmlse_list <- c()
+complexity <- c(seq(0, 0.2, 0.005))
+
+for (i in complexity) {
+  model_rmlse <- rmlse(Ssamples_rand, Tsamples_rand, hyper = i, modelType = "BST_SHR")
+  rmlse_list <- c(rmlse_list, model_rmlse)
+}
+
+plot(complexity, rmlse_list)
+```
+
+```{r, eval=FALSE}
+df1 <- cbind(x_train1f,y_train1f)
+model1 <- gbm(train1f.PRICE~GBA + GRADE + SALE_YEAR + BATHRM + LONGITUDE + WARD_NUM + CNDTN, data = df1, n.trees = 200, interaction.depth = 20, shrinkage = 0.035, distribution = "gaussian")
+model1.pred <- predict(model1, x_test1f, n.trees = 200)
+
+df2 <- cbind(x_train2f,y_train2f)
+model2 <- gbm(train2f.PRICE~GBA + GRADE + SALE_YEAR + BATHRM + LONGITUDE + WARD_NUM + CNDTN, data=df2, n.trees = 200, interaction.depth = 20, shrinkage = 0.035, distribution = "gaussian")
+model2.pred <- predict(model2, x_test2f, n.trees = 200)
+
+df3 <- cbind(x_train3f,y_train3f)
+model3 <- gbm(train3f.PRICE~GBA + GRADE + SALE_YEAR + BATHRM + LONGITUDE + WARD_NUM + CNDTN, data=df3, n.trees = 200, interaction.depth = 20, shrinkage = 0.035, distribution = "gaussian")
+model3.pred <- predict(model3, x_test3f, n.trees = 200)
+
+df4 <- cbind(x_train4f,y_train4f)
+model4 <- gbm(train4f.PRICE~GBA + GRADE + SALE_YEAR + BATHRM + LONGITUDE + WARD_NUM + CNDTN, data=df4, n.trees = 200, interaction.depth = 20, shrinkage = 0.035, distribution = "gaussian")
+model4.pred <- predict(model4, x_test4f, n.trees = 200)
+
+df5 <- cbind(x_train5f,y_train5f)
+model5 <- gbm(train5f.PRICE~GBA + GRADE + SALE_YEAR + BATHRM + LONGITUDE + WARD_NUM + CNDTN, data=df5, n.trees = 200,
+              interaction.depth = 20, shrinkage = 0.035, distribution = "gaussian")
+model5.pred <- predict(model5, x_test5f, n.trees = 200)
+
+a <- cbind(x_test1f$Id, model1.pred, y_test1f$test1f.PRICE)
+b <- cbind(x_test2f$Id, model2.pred, y_test2f$test2f.PRICE)
+c <- cbind(x_test3f$Id, model3.pred, y_test3f$test3f.PRICE)
+d <- cbind(x_test4f$Id, model4.pred, y_test4f$test4f.PRICE)
+f <- cbind(x_test5f$Id, model5.pred, y_test5f$test5f.PRICE)
+
+boosting_preds <- rbind(a,b,c,d,f)
+boosting_preds <- boosting_preds[order(boosting_preds[,1]),]
+
+rmlse_bst <- sqrt(mean(abs(boosting_preds[,3] - boosting_preds[,2])^2))
+rmlse_bst
+
+## Creating the submission file
+boosting_preds <- data.frame(boosting_preds[,c(1,2)])
+boosting_preds[,2] <- exp(boosting_preds[,2])
+colnames(boosting_preds) <- c("Id","PRICE")
+write.csv(boosting_preds,"boosting_predictions3.csv",row.names = FALSE)
+```
+
+## Appendix F:
+
+All code for smoothing
+
+```{r,eval=FALSE}
+get_muhat_tps <- function(sample, df) {
+  x <- sample$x
+  y <- sample$y
+  data <- cbind(x,y)
+  fit <- gam(y ~ s(GBA, k=df) +
+                 s(GRADE, k=df) +
+                 s(SALE_YEAR, k=df) +
+                 s(BATHRM, k=df) +
+                 s(LONGITUDE, k=df),
+             data=data)
+  muhat <- function(x) {
+    predict(fit, x=x)
+  }
+  muhat
+}
+
+rmlse_list <- c()
+complexity <- c(3:5)
+
+for (i in 3:5) {
+  model_rmlse <- rmlse(Ssamples_rand, Tsamples_rand, i, "TPS")
+  rmlse_list <- c(rmlse_list, model_rmlse)
+}
+
+plot(complexity, rmlse_list, xlab="Basis Dimensions", ylab="RMLSE", ylim=extendrange(rmlse_list), main="APSE by Basis Dimension")
+lines(complexity, rmlse_list, lwd=1, col="red", lty=2)
+points(complexity, rmlse_list, pch=19, col="black")
+```
+
+```{r,eval=FALSE}
+new_rmlse_list <- c()
+complexity <- c(57:70)
+
+get_muhat_tps_int <- function(sample, df) {
+  fit <- gam(y ~ s(x$GBA, x$GRADE, x$SALE_YEAR, x$BATHRM, x$LONGITUDE, bs="tp", k=df), data=sample)
+  muhat <- function(x) {
+    predict(fit, x=x)
+  }
+  muhat
+}
+
+for (i in 57:70) {
+  model_rmlse <- rmlse(Ssamples_rand, Tsamples_rand, i, "TPS_INT")
+  new_rmlse_list <- c(new_rmlse_list, model_rmlse)
+}
+
+plot(complexity, new_rmlse_list, xlab="Basis Dimensions", ylab="RMLSE", ylim=extendrange(new_rmlse_list), main="APSE by Basis Dimension")
+lines(complexity, new_rmlse_list, lwd=1, col="red", lty=2)
+points(complexity, new_rmlse_list, pch=19, col="black")
+```
+
+```{r,eval=FALSE}
+d <- cbind(x_train_rand, y_train_rand)
+colnames(d)[ncol(d)] <- "price"
+
+fit1 <- gam(price~s(GBA), data=d)
+gam.check(fit1)
+
+fit2 <- gam(price~s(GBA, k=8) + s(GRADE, k=8) + s(SALE_YEAR, k=8) + s(BATHRM, k=8) + s(LONGITUDE, k=8), data=d)
+gam.check(fit2)
+
+fit3 <- gam(price~s(GBA, k=11) + s(GRADE, k=11) + s(SALE_YEAR, k=11) + s(BATHRM, k=11) + s(LONGITUDE, k=11), data=d)
+gam.check(fit3)
+
+fit4 <- gam(price~s(GBA, k=6) + s(GRADE, k=6) + s(SALE_YEAR, k=6) + s(BATHRM, k=6) + s(LONGITUDE, k=6) +
+              s(WARD_NUM, k=6) + s(CNDTN, k=6) + s(LANDAREA, k=6) + s(ROOMS, k=6), data=d)
+gam.check(fit4)
+
+```
+
+```{r,eval=FALSE}
+deg <- 6
+
+df1 <- cbind(x_train1f, y_train1f)
+model1 <- gam(train1f.PRICE ~ s(GBA,  k=deg) + s(GRADE,  k=deg) + s(SALE_YEAR,  k=deg) +
+                             s(BATHRM,  k=deg) + s(LONGITUDE,  k=deg) + s(WARD_NUM, k=deg) + s(CNDTN,  k=deg) +
+                             s(ROOMS,  k=deg) + s(BEDRM,  k=deg) + s(FIREPLACES,  k=deg) +
+                             s(LATITUDE,  k=deg) + s(LANDAREA,  k=deg) + s(YEARS_SINCE_EYB,  k=deg) +   
+                             s(YEARS_SINCE_IMPROVEMENT,  k=deg) + s(HF_BATHRM, k=deg) + s(SALE_MONTH, k=deg) +
+                             s(STORIES, k=deg), data=df1) 
+model1.pred <- predict(model1, x_test1f)
+
+df2 <- cbind(x_train2f, y_train2f)
+model2 <- gam(train2f.PRICE ~ s(GBA,  k=deg) + s(GRADE,  k=deg) + s(SALE_YEAR,  k=deg) +
+                             s(BATHRM,  k=deg) + s(LONGITUDE,  k=deg) + s(WARD_NUM, k=deg) + s(CNDTN,  k=deg) +
+                             s(ROOMS, k=deg) + s(BEDRM,  k=deg) + s(FIREPLACES,  k=deg) +
+                             s(LATITUDE,  k=deg) + s(LANDAREA,  k=deg) + s(YEARS_SINCE_EYB,  k=deg) +   
+                             s(YEARS_SINCE_IMPROVEMENT,  k=deg) + s(HF_BATHRM, k=deg) + s(SALE_MONTH, k=deg) +
+                             s(STORIES, k=deg), data=df2)
+model2.pred <- predict(model2, x_test2f)
+
+df3 <- cbind(x_train3f, y_train3f)
+model3 <- gam(train3f.PRICE ~ s(GBA, k=deg) + s(GRADE,  k=deg) + s(SALE_YEAR,  k=deg) +
+                             s(BATHRM,  k=deg) + s(LONGITUDE,  k=deg) + s(WARD_NUM,  k=deg) + s(CNDTN,  k=deg) +
+                             s(ROOMS,  k=deg) + s(BEDRM,  k=deg) + s(FIREPLACES,  k=deg) +
+                             s(LATITUDE,  k=deg) + s(LANDAREA,  k=deg) + s(YEARS_SINCE_EYB,  k=deg) +
+                             s(YEARS_SINCE_IMPROVEMENT,  k=deg) + s(HF_BATHRM, k=deg) + s(SALE_MONTH, k=deg) +
+                             s(STORIES, k=deg), data=df3)
+model3.pred <- predict(model3, x_test3f)
+
+df4 <- cbind(x_train4f, y_train4f)
+model4 <- gam(train4f.PRICE~ s(GBA,  k=deg) + s(GRADE,  k=deg) + s(SALE_YEAR,  k=deg) +
+                             s(BATHRM,  k=deg) + s(LONGITUDE,  k=deg) + s(WARD_NUM,  k=deg) + s(CNDTN,  k=deg) +
+                             s(ROOMS,  k=deg) + s(BEDRM,  k=deg) + s(FIREPLACES,  k=deg) +
+                             s(LATITUDE,  k=deg) + s(LANDAREA,  k=deg) + s(YEARS_SINCE_EYB,  k=deg) +       
+                             s(YEARS_SINCE_IMPROVEMENT,  k=deg) + s(HF_BATHRM, k=deg) + s(SALE_MONTH, k=deg) +
+                             s(STORIES, k=deg), data=df4)
+model4.pred <- predict(model4, x_test4f)
+
+df5 <- cbind(x_train5f, y_train5f)
+model5 <- gam(train5f.PRICE~ s(GBA, k=deg) + s(GRADE,  k=deg) + s(SALE_YEAR,  k=deg) +
+                             s(BATHRM,  k=deg) + s(LONGITUDE,  k=deg) + s(WARD_NUM,  k=deg) + s(CNDTN,  k=deg) +
+                             s(ROOMS,  k=deg) + s(BEDRM,  k=deg) + s(FIREPLACES,  k=deg) +
+                             s(LATITUDE,  k=deg) + s(LANDAREA,  k=deg) + s(YEARS_SINCE_EYB,  k=deg) +        
+                             s(YEARS_SINCE_IMPROVEMENT,  k=deg) + s(HF_BATHRM, k=deg) + s(SALE_MONTH, k=deg) +
+                             s(STORIES, k=deg), data=df5)
+model5.pred <- predict(model5, x_test5f)
+
+a <- cbind(x_test1f$Id, model1.pred, y_test1f$test1f.PRICE)
+b <- cbind(x_test2f$Id, model2.pred, y_test2f$test2f.PRICE)
+c <- cbind(x_test3f$Id, model3.pred, y_test3f$test3f.PRICE)
+d <- cbind(x_test4f$Id, model4.pred, y_test4f$test4f.PRICE)
+f <- cbind(x_test5f$Id, model5.pred, y_test5f$test5f.PRICE)
+
+smoothing_preds <- rbind(a,b,c,d,f)
+smoothing_preds <- smoothing_preds[order(smoothing_preds[,1]),]
+
+rmlse_smooth <- sqrt(mean(abs(smoothing_preds[,3]-smoothing_preds[,2])^2))
+rmlse_smooth
+
+
+## Creating the submission file
+smoothing_preds <- data.frame(smoothing_preds[,c(1,2)])
+smoothing_preds[,2] <- exp(smoothing_preds[,2])
+colnames(smoothing_preds) <- c("Id","PRICE")
+write.csv(smoothing_preds,"smoothing_predictions1.csv", row.names = FALSE)
+```
+
+\newpage
+
+## Appendix G
+```{python,eval=FALSE}
+## load in libraries
+import pandas as pd
+import numpy as np
+import scipy as sp
+import os
+import matplotlib.pyplot as plt
+import category_encoders as ce
+
+pd.set_option('display.max_columns', None)
+cwd = os.getcwd()
+os.chdir("Downloads/Stat 444/")
+housing_data = pd.read_csv("housing_price.csv", header = 0)
+
+original_data = housing_data.copy(deep=True)
+ 
+## Creating new engineered features
+f = lambda x: int(x["SALEDATE"].split("-")[1])
+housing_data["SALE_MONTH"] = housing_data.apply(f, axis=1)
+
+g = lambda x: int(x["SALEDATE"].split("-")[0])
+housing_data["SALE_YEAR"] = housing_data.apply(g, axis=1)
+
+# -1 if before
+h = lambda x: max(-1, x["SALE_YEAR"] - x["EYB"])
+j = lambda x: max(-1, x["SALE_YEAR"] - x["YR_RMDL"])
+
+housing_data["YEARS_SINCE_EYB"] = housing_data.apply(h, axis = 1)
+housing_data["YEARS_SINCE_RMDL"] = housing_data.apply(j, axis = 1) 
+
+# Grade variable as categorical
+grade_map = {"Superior": 12, "Excellent": 11, "Exceptional-A": 10, "Exceptional-B": 9,
+            "Exceptional-C": 8, "Exceptional-D": 7, "Very Good": 6, "Above Average": 5,
+            "Good Quality": 4, "Average": 3, "Fair Quality": 2, "Low Quality": 1}
+
+
+housing_data["GRADE"].replace(to_replace= grade_map, inplace=True)
+
+# Condition variable as categorical
+cndtn_map = {"Excellent": 6, "Very Good": 5, "Good": 4, "Average": 3, "Fair":2, "Poor":1}
+
+housing_data["CNDTN"].replace(to_replace= cndtn_map, inplace=True)
+
+# Extract numeric value from ward variable
+f = lambda x: int(x["WARD"].split()[1])
+housing_data["WARD_NUM"] = housing_data.apply(f,axis=1)
+
+# Populate missing values in stories variable
+
+housing_data['STORIES'] = housing_data.apply(
+    lambda row: row['STYLE'].split()[0] if np.isnan(row['STORIES']) else row['STORIES'],
+    axis=1
+)
+
+style_map = {'4 Story': "Story", '2 Story': "Story",'3 Story': "Story", '2.5 Story Fin':"Story", '1 Story':"Story",
+             '3.5 Story Fin': "Story", '1.5 Story Fin': "Story", '2.5 Story Unfin': "Story", 'Default': "Default", 
+             '3.5 Story Unfin': "Story",'1.5 Story Unfin':"Story", 'Split Level':"Split Level", 'Split Foyer':"Split Foyer", 
+             'Bi-Level':"Bi-Level", 'Vacant': "Vacant", '4.5 Story Fin':"Story", '4.5 Story Unfin':"Story"}
+
+housing_data["STYLE"].replace(to_replace= style_map, inplace=True)
+
+# Categories that were deemed to be redundant after feature extraction and too high cardinality
+drop_categories = ["WARD","EYB", "YR_RMDL", "SALEDATE", "ASSESSMENT_SUBNBHD", "CENSUS_BLOCK", "CENSUS_TRACT", "ZIPCODE", "FULLADDRESS", "NATIONALGRID"]
+housing_data = housing_data.drop(drop_categories, axis = 1)
+
+csv = housing_data
+csv.to_csv("housing_price_missing.csv")
+```
+
+## Appendix H:
+
+Division of work:
+
+```{r,echo=FALSE}
+library(knitr)
+df <- data.frame(c("Exploratory Data Analysis","Data preprocessing","Model building","Report Writing"),
+                 c("45","60","40","55"),c("55","40","60","45"))
+colnames(df) <- c("Task","Vincent Le (%)", "Felicia Jiang (%)")
+kable(df)
+```
